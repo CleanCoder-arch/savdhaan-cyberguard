@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
+from math import fsum, isclose
 from typing import Annotated, Literal, Self, TypeVar
 from uuid import UUID, uuid4
 
@@ -17,6 +18,7 @@ from pydantic import (
 )
 
 from core.models.indian_scam_tagger import ScamCategory
+from core.models.prediction import ModelPrediction
 from core.validators import (
     MAX_IMAGE_BYTES,
     validate_indian_mobile,
@@ -120,20 +122,43 @@ class ScanIssue(_ScanModel):
     code: _Identifier
 
 
+class ScoreAttribution(_ScanModel):
+    """Signed points allocated by the scan scoring policy."""
+
+    source: _StringEnum[EvidenceSource]
+    code: _Identifier
+    points: float = Field(allow_inf_nan=False)
+    summary: _Text = Field(max_length=500, repr=False)
+
+
+class ModelExplanation(_ScanModel):
+    """The model probability and its feature contributions in log-odds units."""
+
+    model: Literal["url", "sms"]
+    prediction: ModelPrediction = Field(repr=False)
+
+
 class _RiskAssessment(_ScanModel):
     risk_level: _StringEnum[RiskLevel] | None = None
     risk_score: _RiskScore | None = None
+    score_attribution: tuple[ScoreAttribution, ...] = ()
+    model_explanations: tuple[ModelExplanation, ...] = Field(default=(), repr=False)
 
     @model_validator(mode="after")
     def validate_risk_pair(self) -> Self:
         if (self.risk_level is None) != (self.risk_score is None):
             raise ValueError("Risk level and score must be set together.")
+        if self.score_attribution and not isclose(
+            fsum(item.points for item in self.score_attribution), self.risk_score or 0, rel_tol=0, abs_tol=1e-9
+        ):
+            raise ValueError("Score attribution must add up to the reported risk score.")
         return self
 
 
 class LinkReport(_RiskAssessment):
     url: _HttpUrl = Field(repr=False)
     evidence: tuple[EvidenceItem, ...] = ()
+    issues: tuple[ScanIssue, ...] = ()
 
 
 class UPIPayload(_ScanModel):
@@ -154,6 +179,7 @@ class ScanReport(_RiskAssessment):
     scam_categories: tuple[_StringEnum[ScamCategory], ...] = ()
     evidence: tuple[EvidenceItem, ...] = ()
     links: tuple[LinkReport, ...] = ()
+    scoring_link_index: Annotated[int, Field(ge=0)] | None = None
     upi: UPIPayload | None = Field(default=None, repr=False)
     issues: tuple[ScanIssue, ...] = ()
     latency_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -163,4 +189,6 @@ class ScanReport(_RiskAssessment):
     def validate_completeness(self) -> Self:
         if (self.status is ScanStatus.PARTIAL) != bool(self.issues):
             raise ValueError("Only partial reports must include component issues.")
+        if self.scoring_link_index is not None and self.scoring_link_index >= len(self.links):
+            raise ValueError("The scoring link index must identify a link in this report.")
         return self

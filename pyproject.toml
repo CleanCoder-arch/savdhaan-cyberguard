@@ -7,10 +7,15 @@ name = "savdhaan-cyberguard"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "httpx>=0.27,<1",
+    "joblib>=1.4,<2",
     "numpy>=1.26,<3",
     "opencv-python-headless>=4.10,<5",
     "Pillow>=10.4,<13",
     "pydantic>=2.10,<3",
+    "scikit-learn>=1.5,<2",
+    "scipy>=1.12,<2",
+    "tldextract>=5.2,<6",
 ]
 
 [project.optional-dependencies]

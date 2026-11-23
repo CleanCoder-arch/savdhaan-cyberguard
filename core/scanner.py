@@ -68,6 +68,11 @@ class ScanEngine:
         self._intel_runner = intel_runner if intel_runner is not None else ThreatIntelRunner()
         self._startup_issues: dict[str, ScanIssue] = {}
 
+    @property
+    def readiness(self) -> dict[str, bool]:
+        """Report which local detectors are ready to serve requests."""
+        return {"url_model": self._url_detector is not None, "sms_model": self._sms_detector is not None}
+
     @classmethod
     def from_artifacts(cls, model_dir: str | Path = DEFAULT_MODEL_DIR) -> "ScanEngine":
         """Load trusted local model files and use the cache beside them."""
